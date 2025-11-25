@@ -1,0 +1,107 @@
+---
+# MeiliSearch Service - Headless for StatefulSet
+apiVersion: v1
+kind: Service
+metadata:
+  name: meilisearch
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: meilisearch
+    app.kubernetes.io/component: search
+    app.kubernetes.io/part-of: linkwarden
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless service for StatefulSet
+  ports:
+    - port: 7700
+      targetPort: 7700
+      name: http
+  selector:
+    app.kubernetes.io/name: meilisearch
+    app.kubernetes.io/component: search
+
+---
+# MeiliSearch StatefulSet
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: meilisearch
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: meilisearch
+    app.kubernetes.io/component: search
+    app.kubernetes.io/part-of: linkwarden
+spec:
+  serviceName: meilisearch
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: meilisearch
+      app.kubernetes.io/component: search
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: meilisearch
+        app.kubernetes.io/component: search
+        app.kubernetes.io/part-of: linkwarden
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: meilisearch
+          image: getmeili/meilisearch:v1.12.8
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 7700
+              name: http
+          env:
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: meilisearch-credentials
+                  key: MEILI_MASTER_KEY
+            - name: MEILI_ENV
+              value: "production"
+            - name: MEILI_DB_PATH
+              value: "/meili_data"
+          volumeMounts:
+            - name: meilisearch-data
+              mountPath: /meili_data
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 7700
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 7700
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: meilisearch-data
+        labels:
+          app.kubernetes.io/name: meilisearch
+          app.kubernetes.io/component: search
+          app.kubernetes.io/part-of: linkwarden
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        # Uncomment and modify if you need a specific storage class
+        # storageClassName: standard

@@ -1,0 +1,38 @@
+---
+# Linkwarden ConfigMap - Non-sensitive configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: linkwarden-config
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: linkwarden
+data:
+  # Required - Update this to your actual domain
+  NEXTAUTH_URL: "https://linkwarden.example.com/api/v1/auth"
+
+  # Database connection (references service DNS)
+  # Password is injected separately from secret
+  DATABASE_URL_TEMPLATE: "postgresql://linkwarden:__PASSWORD__@postgres.linkwarden.svc.cluster.local:5432/linkwarden"
+
+  # MeiliSearch connection
+  MEILI_HOST: "http://meilisearch.linkwarden.svc.cluster.local:7700"
+
+  # Storage - local filesystem (default)
+  STORAGE_FOLDER: "/data/data"
+
+  # Optional settings - uncomment and modify as needed
+  # PAGINATION_TAKE_COUNT: "20"
+  # AUTOSCROLL_TIMEOUT: "30"
+  # NEXT_PUBLIC_DISABLE_REGISTRATION: "false"
+  # NEXT_PUBLIC_CREDENTIALS_ENABLED: "true"
+  # DISABLE_NEW_SSO_USERS: "false"
+  # MAX_LINKS_PER_USER: "0"
+  # ARCHIVE_TAKE_COUNT: "5"
+  # BROWSER_TIMEOUT: "30000"
+  # IGNORE_UNAUTHORIZED_CA: "false"
+  # IGNORE_HTTPS_ERRORS: "false"
+  # MAX_WORKERS: "1"
+  # DISABLE_PRESERVATION: "false"

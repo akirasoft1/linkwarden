@@ -1,0 +1,40 @@
+---
+# Ingress for Linkwarden
+# This assumes you have an Ingress Controller installed (e.g., nginx-ingress, traefik)
+# Uncomment and modify according to your setup
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: linkwarden
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: ingress
+    app.kubernetes.io/part-of: linkwarden
+  annotations:
+    # Nginx Ingress Controller annotations
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Uncomment for cert-manager TLS
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    # Uncomment for Traefik
+    # traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    # traefik.ingress.kubernetes.io/router.tls: "true"
+spec:
+  ingressClassName: nginx  # Change to your ingress class (nginx, traefik, etc.)
+  tls:
+    - hosts:
+        - linkwarden.example.com  # UPDATE THIS
+      secretName: linkwarden-tls  # TLS secret (create manually or via cert-manager)
+  rules:
+    - host: linkwarden.example.com  # UPDATE THIS
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: linkwarden
+                port:
+                  number: 3000
