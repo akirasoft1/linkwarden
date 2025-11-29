@@ -1,0 +1,163 @@
+---
+# Linkwarden Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: linkwarden
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: linkwarden
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3000
+      targetPort: 3000
+      name: http
+  selector:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: app
+
+---
+# Linkwarden PersistentVolumeClaim for archive data
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: linkwarden-data
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: linkwarden
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+
+---
+# Linkwarden Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: linkwarden
+  namespace: linkwarden
+  labels:
+    app.kubernetes.io/name: linkwarden
+    app.kubernetes.io/component: app
+    app.kubernetes.io/part-of: linkwarden
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: linkwarden
+        app.kubernetes.io/component: app
+        app.kubernetes.io/part-of: linkwarden
+    spec:
+      securityContext:
+        fsGroup: 1000
+      initContainers:
+        - name: wait-for-postgres
+          image: postgres:16-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres.linkwarden.svc.cluster.local -p 5432 -U linkwarden; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready!"
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+        - name: wait-for-meilisearch
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              until curl -sf http://meilisearch.linkwarden.svc.cluster.local:7700/health; do
+                echo "Waiting for MeiliSearch..."
+                sleep 2
+              done
+              echo "MeiliSearch is ready!"
+      containers:
+        - name: linkwarden
+          image: ghcr.io/linkwarden/linkwarden:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: NEXTAUTH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: linkwarden-config
+                  key: NEXTAUTH_URL
+            - name: NEXTAUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: linkwarden-secrets
+                  key: NEXTAUTH_SECRET
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+            - name: DATABASE_URL
+              value: "postgresql://linkwarden:$(POSTGRES_PASSWORD)@postgres.linkwarden.svc.cluster.local:5432/linkwarden"
+            - name: MEILI_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: linkwarden-config
+                  key: MEILI_HOST
+            - name: MEILI_MASTER_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: meilisearch-credentials
+                  key: MEILI_MASTER_KEY
+            - name: STORAGE_FOLDER
+              valueFrom:
+                configMapKeyRef:
+                  name: linkwarden-config
+                  key: STORAGE_FOLDER
+          volumeMounts:
+            - name: linkwarden-data
+              mountPath: /data/data
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 3000m
+              memory: 12Gi
+          livenessProbe:
+            httpGet:
+              path: /api/v1/auth/session
+              port: 3000
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/v1/auth/session
+              port: 3000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: linkwarden-data
+          persistentVolumeClaim:
+            claimName: linkwarden-data

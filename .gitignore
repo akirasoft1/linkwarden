@@ -54,3 +54,5 @@ data.ms
 .turbo
 
 service-account-file.json
+# k8s/deployed
+k8s/deployed/
