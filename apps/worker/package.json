@@ -6,7 +6,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "dev": "tsx watch index.ts",
-    "start": "tsx index.ts"
+    "start": "tsx index.ts",
+    "convert-cookies": "tsx lib/cookies/convertCookies.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "1.1.5",

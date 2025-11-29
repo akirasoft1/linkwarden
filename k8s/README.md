@@ -38,11 +38,13 @@ This directory contains Kubernetes manifests for deploying Linkwarden with Postg
 
 ### 1. Generate Secrets
 
-Generate secure random values for your secrets:
+Generate secure random values for your secrets.
+
+**IMPORTANT**: Use `openssl rand -hex` for `POSTGRES_PASSWORD` to avoid URL parsing issues. The password is embedded in the `DATABASE_URL` connection string, and base64-encoded values can contain `/`, `+`, or `=` characters that break URL parsing (causing Prisma error P1013: "invalid port number").
 
 ```bash
-# Generate secrets
-POSTGRES_PASSWORD=$(openssl rand -base64 32)
+# Generate secrets - use hex for postgres to avoid URL-unsafe characters
+POSTGRES_PASSWORD=$(openssl rand -hex 32)
 NEXTAUTH_SECRET=$(openssl rand -base64 32)
 MEILI_MASTER_KEY=$(openssl rand -base64 32)
 
@@ -129,6 +131,11 @@ k8s/
     ├── meilisearch.yaml    # MeiliSearch StatefulSet + Service
     ├── linkwarden.yaml     # Linkwarden Deployment + Service + PVC
     └── ingress.yaml        # Ingress (optional)
+
+apps/worker/lib/cookies/
+├── README.md              # Detailed cookie setup documentation
+├── index.ts               # Cookie loading and domain matching
+└── convertCookies.ts      # CLI tool for Chrome -> Playwright conversion
 ```
 
 ## Best Practices Implemented
@@ -204,6 +211,78 @@ stringData:
 
 And reference them in the Linkwarden deployment environment variables.
 
+### Authenticated Archiving (Site Cookies)
+
+To archive paywalled content using your existing subscriptions, you can provide cookies for specific domains. The worker will automatically apply these cookies when archiving URLs from matching domains.
+
+#### Step 1: Export and Convert Cookies
+
+```bash
+# Export cookies from Chrome DevTools (Application > Cookies > Copy)
+# Save to a text file, then convert to Playwright format:
+
+cd apps/worker
+npm run convert-cookies ~/cookies-export.txt ./cookie-output/
+
+# This creates one JSON file per domain (e.g., nytimes.com.json)
+```
+
+#### Step 2: Create Kubernetes Secret
+
+```bash
+kubectl create secret generic linkwarden-site-cookies \
+  --from-file=./cookie-output/ \
+  -n linkwarden
+```
+
+#### Step 3: Mount in Worker Deployment
+
+Add to your linkwarden deployment in `base/linkwarden.yaml`:
+
+```yaml
+spec:
+  template:
+    spec:
+      containers:
+        - name: linkwarden
+          env:
+            - name: SITE_COOKIES_DIR
+              value: "/data/cookies"
+          volumeMounts:
+            - name: site-cookies
+              mountPath: /data/cookies
+              readOnly: true
+      volumes:
+        - name: site-cookies
+          secret:
+            secretName: linkwarden-site-cookies
+```
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SITE_COOKIES_DIR` | `/data/cookies` | Directory containing cookie JSON files |
+
+#### Updating Cookies
+
+When cookies expire, re-export from your browser and update the secret:
+
+```bash
+# Convert new cookies
+npm run convert-cookies ~/new-cookies.txt ./cookie-output/
+
+# Update the secret
+kubectl create secret generic linkwarden-site-cookies \
+  --from-file=./cookie-output/ \
+  -n linkwarden \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+The worker picks up new cookies automatically on the next archival attempt.
+
+For detailed documentation, see `apps/worker/lib/cookies/README.md`.
+
 ## Troubleshooting
 
 ### Pods stuck in Pending
@@ -219,6 +298,24 @@ kubectl -n linkwarden exec -it postgres-0 -- pg_isready -U linkwarden
 
 # Check Linkwarden logs
 kubectl -n linkwarden logs deployment/linkwarden
+```
+
+### Prisma error P1013: "invalid port number"
+This error occurs when the `POSTGRES_PASSWORD` contains URL-unsafe characters (`/`, `+`, `=`). These characters break the `DATABASE_URL` connection string parsing.
+
+**Solution**: Regenerate the password using hex encoding:
+```bash
+# Generate URL-safe password
+POSTGRES_PASSWORD=$(openssl rand -hex 32)
+```
+Then update `secrets.yaml`, delete the PostgreSQL PVC, and redeploy:
+```bash
+kubectl -n linkwarden scale statefulset postgres --replicas=0
+kubectl -n linkwarden delete pvc postgres-data-postgres-0
+kubectl -n linkwarden delete statefulset postgres
+kubectl apply -f k8s/base/secrets.yaml
+kubectl apply -f k8s/base/postgres.yaml
+kubectl -n linkwarden scale deployment linkwarden --replicas=1
 ```
 
 ### MeiliSearch not responding

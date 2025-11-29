@@ -15,6 +15,7 @@ import { LinkWithCollectionOwnerAndTags } from "@linkwarden/types";
 import { isArchivalTag } from "@linkwarden/lib";
 import { ArchivalSettings } from "@linkwarden/types";
 import { getDefaultContextOptions } from "./browser";
+import { applyStorageState, hasCookiesForUrl } from "./cookies";
 
 const BROWSER_TIMEOUT = Number(process.env.BROWSER_TIMEOUT) || 5;
 
@@ -67,7 +68,11 @@ export default async function archiveHandler(
     }, BROWSER_TIMEOUT * 60000);
   });
 
-  const contextOptions = getDefaultContextOptions();
+  // Apply cookies for authenticated archiving if available for this domain
+  let contextOptions = getDefaultContextOptions();
+  if (link.url && hasCookiesForUrl(link.url)) {
+    contextOptions = applyStorageState(contextOptions, link.url);
+  }
   const context = await browser.newContext(contextOptions);
   const page = await context.newPage();
 
